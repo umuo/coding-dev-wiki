@@ -1,0 +1,14 @@
+.git
+.venv
+.env
+.data
+__pycache__
+site
+test-results
+
+# 生产镜像不携带开发入口及其专属资源
+app/dev.py
+app/developer.py
+web/developer
+**/__pycache__
+**/*.pyc

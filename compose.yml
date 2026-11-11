@@ -1,0 +1,18 @@
+services:
+    wiki:
+        build: .
+        ports:
+            - "127.0.0.1:8080:8080"
+        environment:
+            WIKI_LLM_BASE_URL: ${WIKI_LLM_BASE_URL:-https://api.openai.com/v1}
+            WIKI_LLM_API_KEY: ${WIKI_LLM_API_KEY:-}
+            WIKI_LLM_CONTEXT_TOKENS: ${WIKI_LLM_CONTEXT_TOKENS:-128000}
+            WIKI_LLM_MODEL: ${WIKI_LLM_MODEL:-}
+            WIKI_ACCESS_TOKEN: ${WIKI_ACCESS_TOKEN:-}
+            WIKI_GIT_ALLOW_FAKE_IP: ${WIKI_GIT_ALLOW_FAKE_IP:-0}
+            WIKI_GIT_HOSTS: ${WIKI_GIT_HOSTS:-github.com,gitlab.com,bitbucket.org}
+        volumes:
+            - wiki-data:/data
+        restart: unless-stopped
+volumes:
+    wiki-data:

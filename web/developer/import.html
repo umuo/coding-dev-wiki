@@ -1,0 +1,16 @@
+<style>
+.developer-import { border-top: 1px dashed var(--line); padding-top: 18px; }
+.developer-import summary { color: var(--accent); font-weight: 600; }
+#localSubmit { margin-top: 16px; width: 100%; }
+</style>
+
+<details id="developerImport" class="developer-import">
+    <summary>开发者模式 · 本地项目目录</summary>
+    <form id="localImportForm">
+        <label>本地项目目录<input id="localPath" placeholder="项目目录的绝对路径" autocomplete="off" required></label>
+        <small>直接读取服务运行机器上的目录，沿用上方选择的分析方式；不上传、不修改原项目。</small>
+        <button id="localSubmit" type="submit" class="primary">分析本地项目 ↗</button>
+        <p id="localError" class="error" role="alert"></p>
+    </form>
+</details>
+<script type="module" src="/developer/import.js"></script>

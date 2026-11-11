@@ -1,0 +1,15 @@
+site_name: Coding Dev Wiki
+theme:
+    name: mkdocs
+    highlightjs: false
+nav:
+    - 首页: index.md
+    - 使用说明: usage.md
+    - 需求与验收: spec.md
+    - 技术方案: architecture.md
+    - 仓库分析执行层: harness.md
+    - 验证记录: verification.md
+plugins:
+    - search
+    - mermaid2:
+        javascript: https://unpkg.com/mermaid@10.4.0/dist/mermaid.min.js
