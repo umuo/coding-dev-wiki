@@ -46,7 +46,8 @@ def test_actions_filter_session_private_content_and_duplicate_updates(tmp_path, 
     assert published[0]["detail"].startswith("main.py")
     assert published[-1]["durationMs"] == 200
     serialized = json.dumps(published)
-    assert "SECRET SOURCE" not in serialized and "PRIVATE THINKING" not in serialized and str(tmp_path) not in serialized
+    assert "SECRET SOURCE" in published[-1]["payload"]["response"]
+    assert "PRIVATE THINKING" not in serialized and str(tmp_path) not in serialized
     bridge.publish("masked", "retry", "waiting", "private-key")
     assert "private-key" not in json.dumps(published)
 

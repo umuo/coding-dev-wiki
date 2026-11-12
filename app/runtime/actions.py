@@ -1,7 +1,8 @@
-"""将原生事件映射为可公开的动作；不转发源码输出、密钥或思考文本。"""
+"""将原生事件映射为可公开的动作；按需保留脱敏的工具原始内容，不输出隐藏思考。"""
 from pathlib import Path
 from ..config import model_config
 from .telemetry import Generation
+from .payloads import capture
 from .details import outcome, failure, plan
 
 TOOL_NAMES = {"read": "读取源码", "grep": "搜索代码", "glob": "查找文件", "todowrite": "更新分析计划"}
@@ -91,7 +92,7 @@ class Actions:
                 detail += " · 失败原因：" + failure(state.get("error"), self.clean)
             clock = state.get("time", {})
             duration = max(0, clock.get("end", 0) - clock.get("start", 0)) if clock.get("end") else None
-            self.publish(identity, "tool", status, TOOL_NAMES.get(tool, "执行工具 " + tool), detail, tool=tool, durationMs=duration)
+            self.publish(identity, "tool", status, TOOL_NAMES.get(tool, "执行工具 " + tool), detail, tool=tool, durationMs=duration, payload=capture(part, self.runtime.workspace))
 
     def snapshot(self, messages):
         for message in messages:

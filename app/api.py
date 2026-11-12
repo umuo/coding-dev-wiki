@@ -6,12 +6,13 @@ import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import Literal
 from . import config, jobs, store
 from .analysis.agent import ask
+from .runtime.payloads import preview as preview_event, load as load_tool_payload
 from .importing.sources import validate_git_url
 
 
@@ -156,7 +157,7 @@ async def stream(identifier: str, request: Request, after: int = 0):
             for event in batch:
                 cursor = event["seq"]
                 kind = "action" if event.get("action") else "progress"
-                yield f"id: {cursor}\nevent: {kind}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+                yield f"id: {cursor}\nevent: {kind}\ndata: {json.dumps(preview_event(event), ensure_ascii=False)}\n\n"
             job = get_job(identifier)
             if job["status"] in {"completed", "failed", "stopped"} and not store.events(identifier, cursor):
                 yield f"event: done\ndata: {json.dumps(job, ensure_ascii=False)}\n\n"
@@ -165,6 +166,16 @@ async def stream(identifier: str, request: Request, after: int = 0):
                 yield ": heartbeat\n\n"
             await asyncio.sleep(0.6)
     return StreamingResponse(generate(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/jobs/{identifier}/events/{sequence}/tool", dependencies=[Depends(access)])
+def tool_details(identifier: str, sequence: int):
+    get_job(identifier)
+    try:
+        payload = load_tool_payload(identifier, sequence)
+    except KeyError:
+        raise HTTPException(404, "此条日志没有保存原始工具参数或响应") from None
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/jobs/{identifier}/result", dependencies=[Depends(access)])

@@ -26,6 +26,12 @@ def main():
         expect(page.locator('#logs')).to_be_visible()
         expect(page.locator('#logs [data-kind="tool"][data-status="completed"]')).to_contain_text('读取源码')
         expect(page.locator('#logs [data-kind="model"][data-status="running"]')).not_to_have_count(0)
+        tool_row = page.locator('#logs [data-kind="tool"][data-status="completed"]').first
+        tool_row.locator('summary').click()
+        expect(tool_row.locator('.tool-payload')).to_contain_text('"filePath": "repo/main.py"')
+        expect(tool_row.locator('.tool-payload')).to_contain_text('def run():')
+        expect(tool_row.locator('.tool-payload')).to_contain_text('调用 ID')
+        tool_row.locator('summary').click()
         original = page.url
         page.reload()
         expect(page.locator('#logs [data-kind="tool"][data-status="completed"]')).to_contain_text('main.py')
@@ -58,8 +64,16 @@ def main():
         expect(page.locator('#logs [data-kind="retry"][data-status="completed"]')).to_contain_text('自动重试成功')
         page.evaluate("""async () => {
             const {renderAction} = await import('/assets/logs.js');
-            renderAction({action:{id:'untrusted',kind:'tool',status:'completed',title:'<img src=x onerror="window.injected=true">',detail:'<script>bad</script>'}});
+            renderAction({action:{id:'untrusted',kind:'tool',status:'completed',title:'<img src=x onerror="window.injected=true">',detail:'<script>bad</script>',payload:{tool:'read',callId:'safe',status:'completed',parameters:{path:'<img src=x onerror="window.injected=true">'},response:'<script>window.injected=true</script>'+ 'x'.repeat(20000)}}});
         }""")
+        untrusted = page.locator('#logs .log-line').last
+        panel_height = page.locator('#progressPanel').bounding_box()['height']
+        untrusted.locator('summary').click()
+        expect(untrusted.locator('.tool-payload')).to_contain_text('调用参数')
+        expect(untrusted.locator('.tool-payload pre').last).to_have_text('<script>window.injected=true</script>' + 'x' * (8192 - len('<script>window.injected=true</script>')))
+        untrusted.get_by_role('button', name='继续显示').click()
+        assert len(untrusted.locator('.tool-payload pre').last.inner_text()) > 8192
+        assert abs(page.locator('#progressPanel').bounding_box()['height'] - panel_height) <= 1
         assert page.locator('#logs img, #logs script').count() == 0
         # 历史日志浏览不被新动作强行拉回底部，恢复到底部后继续跟随。
         page.evaluate("""async () => {

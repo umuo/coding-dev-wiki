@@ -1,4 +1,5 @@
 import {$, el} from './common.js';
+import {attachToolDetails} from './tool-details.js';
 
 const labels = {queued: '等待中', running: '执行中', completed: '已完成', failed: '失败', waiting: '等待重试', connected: '已连接', reconnecting: '重连中'};
 const seen = new Set();
@@ -18,8 +19,9 @@ function append(event, text, action = null) {
     const logs = $('#logs');
     const follow = logs.scrollHeight - logs.scrollTop - logs.clientHeight < 32;
     const time = event.at ? new Date(event.at).toLocaleTimeString() : new Date().toLocaleTimeString();
-    const line = el('span', `${time}  ${text}\n`, 'log-line');
+    const line = el('div', `${time}  ${text}`, 'log-line');
     if (action) {
+        attachToolDetails(line, event);
         line.dataset.kind = action.kind;
         line.dataset.status = action.status;
     }
