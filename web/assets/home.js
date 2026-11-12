@@ -1,5 +1,5 @@
 import {$, el, api, jsonPost} from './common.js';
-import {resetActions, renderAction, settleActions} from './actions.js';
+import {resetLogs, renderAction, renderProgress} from './logs.js';
 let kind = 'git';
 let activeJob = null;
 let stream = null;
@@ -61,7 +61,6 @@ function finish(job) {
         stream.close();
     }
     showStatus(job);
-    settleActions();
     $('#jobError').textContent = job.error || '';
     loadJobs();
 }
@@ -79,8 +78,7 @@ export async function watch(id) {
     $('#progressBar').style.width = '0%';
     $('#progressPanel').hidden = false;
     $('.import-panel').hidden = true;
-    $('#logs').textContent = '';
-    resetActions();
+    resetLogs();
     $('#jobError').textContent = '';
     $('#retry').hidden = true;
     $('#continueAnalysis').hidden = true;
@@ -116,9 +114,7 @@ export async function watch(id) {
             }
             $('#percentage').textContent = `${data.progress}%`;
             $('#progressBar').style.width = `${data.progress}%`;
-            const logs = $('#logs');
-            logs.textContent += `${new Date(data.at).toLocaleTimeString()}  [${data.stage}] ${data.message}\n`;
-            logs.scrollTop = logs.scrollHeight;
+            renderProgress(data);
         });
         source.addEventListener('done', (event) => {
             if (stream === source) {

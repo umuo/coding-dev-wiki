@@ -22,14 +22,16 @@ def main():
         page.locator("#submit").click()
         expect(page.locator("#logs")).to_contain_text("阅读 main.py:1-2", timeout=30000)
         expect(page.locator("#jobStatus")).to_have_text("正在运行")
-        expect(page.locator('#runtimeActions')).to_be_visible()
-        expect(page.locator('#actionList [data-kind="tool"][data-status="completed"]')).to_contain_text('读取源码')
-        expect(page.locator('#actionList [data-kind="model"][data-status="running"]')).not_to_have_count(0)
+        expect(page.locator('#runtimeActions')).to_have_count(0)
+        expect(page.locator('#logs')).to_be_visible()
+        expect(page.locator('#logs [data-kind="tool"][data-status="completed"]')).to_contain_text('读取源码')
+        expect(page.locator('#logs [data-kind="model"][data-status="running"]')).not_to_have_count(0)
         original = page.url
         page.reload()
-        expect(page.locator('#actionList [data-kind="tool"][data-status="completed"]')).to_contain_text('main.py')
+        expect(page.locator('#logs [data-kind="tool"][data-status="completed"]')).to_contain_text('main.py')
         page.set_viewport_size({"width": 390, "height": 844})
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        assert 220 <= page.locator('#logs').bounding_box()['height'] <= 360
         Path('test-results').mkdir(exist_ok=True)
         page.screenshot(path='test-results/runtime-actions-mobile.png', full_page=True)
         page.locator("#stopAnalysis").click()
@@ -48,17 +50,40 @@ def main():
         page.locator('#zipFile').set_input_files({"name": "timeout.zip", "mimeType": "application/zip", "buffer": content.getvalue()})
         page.locator('#mode').select_option('agent')
         page.locator('#submit').click()
-        expect(page.locator('#actionList [data-kind="retry"][data-status="waiting"]')).to_contain_text('1/2', timeout=30000)
+        expect(page.locator('#logs [data-kind="retry"][data-status="waiting"]')).to_contain_text('1/2', timeout=30000)
         page.screenshot(path='test-results/runtime-retry-mobile.png', full_page=True)
         expect(page.locator('#resultLink')).to_be_visible(timeout=30000)
-        expect(page.locator('#actionList [data-kind="retry"][data-status="completed"]')).to_contain_text('自动重试成功')
+        expect(page.locator('#logs [data-kind="retry"][data-status="completed"]')).to_contain_text('自动重试成功')
         page.reload()
-        expect(page.locator('#actionList [data-kind="retry"][data-status="completed"]')).to_contain_text('自动重试成功')
+        expect(page.locator('#logs [data-kind="retry"][data-status="completed"]')).to_contain_text('自动重试成功')
         page.evaluate("""async () => {
-            const {renderAction} = await import('/assets/actions.js');
+            const {renderAction} = await import('/assets/logs.js');
             renderAction({action:{id:'untrusted',kind:'tool',status:'completed',title:'<img src=x onerror="window.injected=true">',detail:'<script>bad</script>'}});
         }""")
-        assert page.locator('#actionList img, #actionList script').count() == 0
+        assert page.locator('#logs img, #logs script').count() == 0
+        # 历史日志浏览不被新动作强行拉回底部，恢复到底部后继续跟随。
+        page.evaluate("""async () => {
+            const {renderProgress, renderAction} = await import('/assets/logs.js');
+            for (let i = 0; i < 80; i++) {
+                renderProgress({seq:10000+i,stage:'验收',message:'历史日志 '+i});
+            }
+            const logs = document.querySelector('#logs');
+            logs.scrollTop = 0;
+            renderAction({seq:11000,action:{id:'new',kind:'tool',status:'completed',title:'新动作'}});
+            if (logs.scrollTop !== 0) {
+                throw new Error('新日志打断了历史阅读');
+            }
+            logs.scrollTop = logs.scrollHeight;
+            renderProgress({seq:11001,stage:'验收',message:'跟随新日志'});
+            if (logs.scrollHeight-logs.scrollTop-logs.clientHeight > 2) {
+                throw new Error('日志没有跟随底部');
+            }
+            const count = logs.childElementCount;
+            renderProgress({seq:11001,stage:'验收',message:'重复事件'});
+            if (count !== logs.childElementCount) {
+                throw new Error('重复事件未去重');
+            }
+        }""")
         assert page.evaluate('window.injected') is None
         assert not errors, errors
         browser.close()
