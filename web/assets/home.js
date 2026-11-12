@@ -1,4 +1,5 @@
 import {$, el, api, jsonPost} from './common.js';
+import {resetActions, renderAction, settleActions} from './actions.js';
 let kind = 'git';
 let activeJob = null;
 let stream = null;
@@ -60,6 +61,7 @@ function finish(job) {
         stream.close();
     }
     showStatus(job);
+    settleActions();
     $('#jobError').textContent = job.error || '';
     loadJobs();
 }
@@ -78,6 +80,7 @@ export async function watch(id) {
     $('#progressPanel').hidden = false;
     $('.import-panel').hidden = true;
     $('#logs').textContent = '';
+    resetActions();
     $('#jobError').textContent = '';
     $('#retry').hidden = true;
     $('#continueAnalysis').hidden = true;
@@ -96,6 +99,11 @@ export async function watch(id) {
         source.addEventListener('state', (event) => {
             if (stream === source) {
                 showStatus(JSON.parse(event.data));
+            }
+        });
+        source.addEventListener('action', (event) => {
+            if (stream === source) {
+                renderAction(JSON.parse(event.data));
             }
         });
         source.addEventListener('progress', (event) => {

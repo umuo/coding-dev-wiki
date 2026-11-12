@@ -155,7 +155,8 @@ async def stream(identifier: str, request: Request, after: int = 0):
             batch = store.events(identifier, cursor)
             for event in batch:
                 cursor = event["seq"]
-                yield f"id: {cursor}\nevent: progress\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+                kind = "action" if event.get("action") else "progress"
+                yield f"id: {cursor}\nevent: {kind}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
             job = get_job(identifier)
             if job["status"] in {"completed", "failed", "stopped"} and not store.events(identifier, cursor):
                 yield f"event: done\ndata: {json.dumps(job, ensure_ascii=False)}\n\n"

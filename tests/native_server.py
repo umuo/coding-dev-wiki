@@ -7,8 +7,7 @@ import threading
 from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
-from .test_agent import OUTPUT
+from fastapi.responses import StreamingResponse, JSONResponse
 
 os.environ["WIKI_OPENCODE_BIN"] = str(Path(__file__).resolve().parents[1] / ".data/bin/opencode")
 os.environ["WIKI_DATA_DIR"] = tempfile.mkdtemp(prefix="wiki-native-browser-")
@@ -20,15 +19,31 @@ os.environ["WIKI_ACCESS_TOKEN"] = ""
 os.environ["WIKI_ENV"] = "production"
 os.environ["WIKI_DEV_MODE"] = "0"
 from app.api import app
+from app import config
+from .test_agent import OUTPUT
+
+assert config.DATA_DIR == Path(os.environ["WIKI_DATA_DIR"]).resolve(), "浏览器服务必须使用隔离数据目录"
 
 fake = FastAPI()
 resumed = False
+timeout_next = False
+
+
+@app.post("/test/timeout-next")
+def fail_next():
+    global timeout_next
+    timeout_next = True
+    return {"ok": True}
 
 
 @fake.post("/v1/chat/completions")
 async def completion(request: Request):
+    global timeout_next
     body = await request.json()
     done = any(message["role"] == "tool" for message in body["messages"])
+    if done and timeout_next:
+        timeout_next = False
+        return JSONResponse({"error": {"message": "The operation timed out.", "type": "invalid_request_error"}}, status_code=400)
     async def stream():
         global resumed
         def event(delta, reason=None):

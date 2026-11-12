@@ -79,6 +79,11 @@ def run(identifier, resume=False, control=None):
                 calls += 1
                 store.event(identifier, "Agent 分析", min(85, baseline + calls // 2), message)
                 control.check()
+            def action(payload):
+                control.check()
+                store.event(identifier, "Agent 分析", min(85, baseline + calls // 2), payload["title"], action=payload)
+                control.check()
+            log.action = action
             state = checkpoints.load(identifier, "agent-state") if resume else None
             if state and state.get("engine") == "opencode":
                 store.event(identifier, "恢复检查点", baseline, "恢复 OpenCode 会话与已读源码记录，不重建分区对话")

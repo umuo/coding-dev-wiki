@@ -59,11 +59,12 @@ async def analyze(files, log, *, state=None, checkpoint=None, runtime_factory=Ru
     def observe(messages):
         collect_reads(messages, workspace, files, current["reads"], seen, log)
         assistants = [message["info"] for message in messages if message.get("info", {}).get("role") == "assistant"]
-        usage.requests = len(assistants)
-        usage.input_tokens = sum(item.get("tokens", {}).get("input", 0) for item in assistants)
-        usage.output_tokens = sum(item.get("tokens", {}).get("output", 0) for item in assistants)
-        usage.reasoning_tokens = sum(item.get("tokens", {}).get("reasoning", 0) for item in assistants)
-        current["usage"] = vars(usage).copy()
+        if assistants:
+            usage.requests = len(assistants)
+            usage.input_tokens = sum(item.get("tokens", {}).get("input", 0) for item in assistants)
+            usage.output_tokens = sum(item.get("tokens", {}).get("output", 0) for item in assistants)
+            usage.reasoning_tokens = sum(item.get("tokens", {}).get("reasoning", 0) for item in assistants)
+            current["usage"] = vars(usage).copy()
         persist()
     schema = Analysis.model_json_schema()
     prompt = ("分析 repo/ 里的项目，先解释项目解决什么问题、入口和最主要的业务链路，再解释架构。"

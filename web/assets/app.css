@@ -65,3 +65,19 @@ footer { text-align: center; padding: 30px; font-size: 11px; color: var(--muted)
 .danger:hover { color: #8e2823; background: #fff0ed; border-color: #b53b35; }
 @keyframes running-pulse { 50% { opacity: .3; } }
 @media (prefers-reduced-motion: reduce) { .status.running::before { animation: none; } }
+
+.runtime-actions { border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 18px 0; }
+.runtime-actions h3 { margin: 0 0 10px; font-size: 14px; }
+#currentAction { font-size: 12px; color: var(--accent); overflow-wrap: anywhere; }
+.action-list { display: grid; gap: 8px; list-style: none; padding: 0; max-height: 330px; overflow: auto; }
+.runtime-action { border-left: 2px solid var(--line); padding: 8px 10px; background: var(--bg); }
+.runtime-action-heading { display: flex; gap: 10px; justify-content: space-between; font-size: 12px; }
+.runtime-action small { display: block; margin-top: 5px; color: var(--muted); overflow-wrap: anywhere; font-size: 11px; }
+.action-status { color: var(--muted); white-space: nowrap; font-size: 11px; }
+.runtime-action[data-status="running"], .runtime-action[data-status="waiting"] { border-color: var(--accent); }
+.runtime-action[data-status="failed"] { border-color: #b53b35; }
+.runtime-action[data-status="failed"] .action-status { color: #b53b35; }
+@media (max-width: 480px) {
+    .runtime-actions { padding: 12px; }
+    .runtime-action-heading { flex-wrap: wrap; }
+}

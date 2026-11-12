@@ -8,6 +8,8 @@ import signal
 import time
 import httpx
 from .settings import binary, environment, VERSION
+from .stream import EventStream
+from .retries import ModelTimeout, is_timeout, RETRY_DELAYS
 
 
 class Runtime:
@@ -102,22 +104,56 @@ class Runtime:
         return result
 
     async def prompt(self, text, observe):
+        events = EventStream(self, observe)
+        try:
+            await events.start()
+            for attempt in range(len(RETRY_DELAYS) + 1):
+                try:
+                    result = await self.request(text, observe, events)
+                    events.actions.publish("session-work", "session", "completed", "本轮模型请求已结束")
+                    for identity, action in list(events.actions.previous.items()):
+                        if identity.startswith("native-retry-") and action["status"] in {"waiting", "running"}:
+                            events.actions.publish(identity, "retry", "completed", "原生重试已完成")
+                    if attempt:
+                        events.actions.publish("timeout-retry", "retry", "completed", "自动重试成功", f"第 {attempt}/2 次已恢复，沿用同一会话")
+                    return result
+                except (ModelTimeout, httpx.TimeoutException) as exc:
+                    if attempt == len(RETRY_DELAYS):
+                        events.actions.publish("timeout-retry", "retry", "failed", "超时重试已耗尽", "已自动重试两次，会话已保存，可稍后手动继续")
+                        raise ModelTimeout("模型请求连续超时，已自动重试 2 次；会话已保存，可稍后手动继续") from exc
+                    delay = RETRY_DELAYS[attempt]
+                    self.log(f"模型请求超时，{delay} 秒后自动重试 {attempt + 1}/2；复用当前会话")
+                    events.actions.publish("timeout-retry", "retry", "waiting", "模型超时，等待自动重试", f"{delay} 秒后重试 {attempt + 1}/2，复用当前会话")
+                    await asyncio.sleep(delay)
+                    events.actions.publish("timeout-retry", "retry", "running", "正在自动重试", f"第 {attempt + 1}/2 次，沿用已读取源码与分析成果")
+                    text = "上一次模型调用超时。继续当前尚未完成的分析，沿用已有读取与成果，不要重复全仓扫描，最终输出沿用之前的 JSON Schema 要求。"
+        finally:
+            if events.task:
+                await events.close()
+
+    async def request(self, text, observe, events):
         task = asyncio.create_task(self.client.post("/session/" + self.session_id + "/message", json={
             "agent": "wiki", "model": {"providerID": "wiki", "modelID": "project"},
-            "parts": [{"type": "text", "text": text}]}))
+            "parts": [{"type": "text", "text": text}]},
+            timeout=httpx.Timeout(None, connect=5, write=20, pool=5)))
         started = time.monotonic()
         heartbeat = started
         try:
             while not task.done():
                 await asyncio.wait({task}, timeout=1)
-                messages = await self.messages()
-                observe(messages)
+                events.check()
+                if not events.connected:
+                    messages = await self.messages()
+                    observe(messages)
+                    events.actions.snapshot(messages)
                 if time.monotonic() - heartbeat >= 10:
                     statuses = await self.get("/session/status")
                     status = statuses.get(self.session_id, {})
                     if status.get("type") == "retry":
                         self.log("模型接口重试中，当前尝试：" + str(status.get("attempt", "?")))
                         if status.get("attempt", 0) > 1:
+                            if is_timeout(status.get("message", "")):
+                                raise ModelTimeout("原生模型接口连续超时")
                             raise RuntimeError("模型接口连续失败，已停止自动重试；可检查接口后手动继续")
                     self.log(f"OpenCode 正在分析，已等待 {int(time.monotonic() - started)} 秒；可随时停止")
                     heartbeat = time.monotonic()
@@ -126,11 +162,16 @@ class Runtime:
             response = await task
             response.raise_for_status()
             result = response.json()
-            observe(await self.messages())
+            messages = await self.messages()
+            observe(messages)
+            events.actions.snapshot(messages)
             info = result.get("info", {})
             if info.get("error"):
                 error = info["error"]
-                raise RuntimeError("OpenCode 模型调用失败：" + str(error.get("data", {}).get("message", error.get("name", "unknown")))[:400])
+                detail = str(error.get("data", {}).get("message", error.get("name", "unknown")))[:400]
+                if is_timeout(detail) and error.get("data", {}).get("statusCode") not in {401, 403}:
+                    raise ModelTimeout(detail)
+                raise RuntimeError("OpenCode 模型调用失败：" + detail)
             if info.get("finish") == "length":
                 tokens = info.get("tokens", {})
                 raise RuntimeError(f"模型输出达到上限（输出 {tokens.get('output', 0)}，思考 {tokens.get('reasoning', 0)} token），会话已保存；请检查模型的思考模式或输出限制")

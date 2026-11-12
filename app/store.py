@@ -31,6 +31,10 @@ def initialize():
                 stage TEXT, progress INTEGER, message TEXT
             );
         ''')
+        columns = {row["name"] for row in db.execute("PRAGMA table_info(events)")}
+        if "action" not in columns:
+            db.execute("ALTER TABLE events ADD COLUMN action TEXT")
+        db.execute("CREATE INDEX IF NOT EXISTS events_job_seq ON events(job_id,seq)")
         db.execute("UPDATE jobs SET status='stopped', stage='已停止', error='' WHERE status='stopping'")
         rows = db.execute("SELECT id FROM jobs WHERE status IN ('queued','running')").fetchall()
         for row in rows:
@@ -66,7 +70,7 @@ def listing():
         return [dict(row) for row in db.execute("SELECT * FROM jobs ORDER BY created DESC LIMIT 100")]
 
 
-def event(identifier, stage, progress, message, status="running", error=""):
+def event(identifier, stage, progress, message, status="running", error="", *, action=None):
     with connection() as db:
         if status == "stopped":
             condition = "status IN ('queued','running','stopping')"
@@ -76,15 +80,18 @@ def event(identifier, stage, progress, message, status="running", error=""):
                              (stage, progress, status, error, identifier))
         if changed.rowcount == 0:
             return False
-        db.execute("INSERT INTO events(job_id,at,stage,progress,message) VALUES(?,?,?,?,?)",
-                   (identifier, now(), stage, progress, message))
+        db.execute("INSERT INTO events(job_id,at,stage,progress,message,action) VALUES(?,?,?,?,?,?)",
+                   (identifier, now(), stage, progress, message, json.dumps(action, ensure_ascii=False) if action else None))
     return True
 
 
 def events(identifier, after=0):
     with connection() as db:
-        return [dict(row) for row in db.execute(
+        rows = [dict(row) for row in db.execute(
             "SELECT * FROM events WHERE job_id=? AND seq>? ORDER BY seq LIMIT 500", (identifier, after))]
+    for row in rows:
+        row["action"] = json.loads(row["action"]) if row["action"] else None
+    return rows
 
 
 def save_result(identifier, payload):

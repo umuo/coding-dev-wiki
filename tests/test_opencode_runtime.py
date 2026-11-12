@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from app.runtime.analysis import analyze, normalize_paths
 from app.runtime.settings import environment, runtime_config
 from app.runtime.workspace import materialize, collect_reads
@@ -29,7 +29,7 @@ def native(tmp_path, monkeypatch):
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     port = listener.getsockname()[1]
-    fake = SimpleNamespace(calls=[], block=False, correction=False, disconnected=threading.Event(), arrived=threading.Event())
+    fake = SimpleNamespace(calls=[], block=False, correction=False, timeouts=0, disconnected=threading.Event(), arrived=threading.Event())
     root = tmp_path / "runtime"
     app = FastAPI()
     @app.post("/v1/chat/completions")
@@ -40,6 +40,9 @@ def native(tmp_path, monkeypatch):
         names = {item["function"]["name"] for item in body.get("tools", [])}
         assert "bash" not in names and "edit" not in names and "task" not in names
         done = any(message["role"] == "tool" for message in body["messages"])
+        if done and fake.timeouts:
+            fake.timeouts -= 1
+            return JSONResponse({"error": {"message": "The operation timed out.", "type": "invalid_request_error"}}, status_code=400)
         async def stream():
             def event(delta, finish=None):
                 return "data: " + json.dumps({"id": "fake", "object": "chat.completion.chunk", "created": 0,
@@ -113,7 +116,7 @@ def test_real_runtime_stop_closes_model_and_resumes_native_session(native):
     async def stop():
         task = asyncio.create_task(analyze(FILES, lambda message: None, checkpoint=checkpoint))
         for _ in range(200):
-            if state.get("reads"):
+            if state.get("reads") and fake.arrived.is_set():
                 break
             await asyncio.sleep(.05)
         assert fake.arrived.is_set() and state["reads"]["main.py"]
@@ -180,3 +183,49 @@ def test_canonical_paths_only_normalize_existing_snapshot_files(tmp_path):
     normalize_paths(result, tmp_path, FILES)
     assert result.featureGroups[0].features[0].steps[0].path == "main.py"
     assert result.architecture[0].evidence[0].path == "main.py"
+
+
+def test_real_stream_delivers_actions_before_request_finishes_without_polling(native):
+    from app.runtime.client import Runtime
+    fake, state, checkpoint = native
+    fake.block = True
+    actions = []
+    connections = []
+    def log(message):
+        pass
+    log.action = actions.append
+    class CountRuntime(Runtime):
+        def __init__(self, *args):
+            super().__init__(*args)
+            self.message_reads = 0
+            connections.append(self)
+        async def messages(self):
+            self.message_reads += 1
+            return await super().messages()
+    async def run():
+        task = asyncio.create_task(analyze(FILES, log, checkpoint=checkpoint, runtime_factory=CountRuntime))
+        for _ in range(200):
+            if state.get("reads") and fake.arrived.is_set():
+                break
+            await asyncio.sleep(.02)
+        assert not task.done()
+        assert any(item["kind"] == "tool" and item["status"] == "completed" and item["tool"] == "read" for item in actions)
+        assert any(item["kind"] == "model" and item["status"] == "running" for item in actions)
+        assert connections[0].message_reads == 1
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    asyncio.run(run())
+
+
+def test_real_timeout_is_automatically_retried_in_same_native_session(native, monkeypatch):
+    import app.runtime.client as module
+    monkeypatch.setattr(module, "RETRY_DELAYS", (.01, .01))
+    fake, state, checkpoint = native
+    fake.timeouts = 1
+    logs = []
+    result, _ = asyncio.run(analyze(FILES, logs.append, checkpoint=checkpoint))
+    assert result.overview == OUTPUT["overview"] and len(fake.calls) == 3
+    assert any("自动重试 1/2" in message for message in logs)
+    assert state["reads"]["main.py"] == [(1, 2)]
+    assert "继续当前尚未完成" in str(fake.calls[-1]["messages"])
