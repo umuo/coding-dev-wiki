@@ -53,11 +53,17 @@ def login(body: Login, request: Request):
 
 @app.get("/api/health")
 def health():
+    from .runtime.settings import limits, binary
+    try:
+        binary()
+        ready = True
+    except RuntimeError:
+        ready = False
     return {"ok": True, "modelReady": config.model_ready(), "authRequired": bool(config.ACCESS_TOKEN),
             "model": config.model_config()["model"] if config.model_ready() else "",
             "maxUploadMiB": config.MAX_UPLOAD // 1024 // 1024,
             "contextTokens": config.model_budget().context_tokens,
-            "maxOutputTokens": config.model_budget().max_output_tokens}
+            "maxOutputTokens": limits()["output"], "analysisEngine": "opencode", "analysisRuntimeReady": ready}
 
 
 def require_mode(mode):

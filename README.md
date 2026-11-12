@@ -1,15 +1,16 @@
 # Coding Dev Wiki
 
-导入 Git 仓库或项目 ZIP，使用 **Pydantic AI Agent + 官方 Harness** 自动分析项目，生成可追溯的交互式源码阅读站。
+导入 Git 仓库或项目 ZIP，使用 **OpenCode 完整代码智能体运行时** 自动分析项目，生成可追溯的交互式源码阅读站。
 
 ## 启动
 
-需要 Python 3.11+ 和 Git。前端无需 Node 构建，源码由同一个 Web 服务提供。
+需要 Python 3.11+、Git 和固定版本 OpenCode（安装命令如下）。前端无需 Node 构建，源码由同一个 Web 服务提供。
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -c requirements.lock -e '.[dev]'
+python -m app.runtime.install
 export WIKI_LLM_BASE_URL=https://api.openai.com/v1
 export WIKI_LLM_API_KEY=your-key
 export WIKI_LLM_MODEL=your-tool-capable-model
@@ -34,7 +35,7 @@ python -m app.dev
 ## 已实现
 
 - 公开 HTTPS Git URL / ZIP 导入，任务队列、实时 SSE 日志与阶段进度。
-- Pydantic AI 负责工具循环、结构化输出和校验重试；项目提供 `list_files`、`read_file`、`search_code` 只读工具。
+- OpenCode 负责原生代码探索、工具循环、会话和压缩；应用只负责只读快照、任务管理和结果/引用校验。
 - 项目概述、阅读路线、可点击的架构图、业务功能与实现环节。
 - 功能链路 / 函数聚焦 / 完整文件视图、目录树、符号大纲、全仓文本搜索、页内查找、行号跳转、快照分享链接、主题切换。
 - 基于同一源码快照的多轮问答和引用跳转。
@@ -65,4 +66,4 @@ mkdocs serve
 
 任务运行时可实时查看状态并点击“停止分析”；停止后保留检查点，Agent 任务可继续。停止中的请求会等待执行退出后才标记为已停止。
 
-仓库分析按模块分段执行，分别保留模块摘要、分析计划和工作笔记，最后汇总项目概述与架构。失败或停止后继续未完成模块，详见[仓库分析执行层](docs/harness.md)。
+仓库分析采用完整代码智能体，优先理解主要链路，不再强制执行串行目录分区。失败或停止后恢复原生会话，详见[分析运行时](docs/runtime.md)。

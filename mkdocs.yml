@@ -7,7 +7,8 @@ nav:
     - 使用说明: usage.md
     - 需求与验收: spec.md
     - 技术方案: architecture.md
-    - 仓库分析执行层: harness.md
+    - 完整分析运行时: runtime.md
+    - 历史 Harness 方案: harness.md
     - 验证记录: verification.md
 plugins:
     - search

@@ -6,7 +6,7 @@ from dataclasses import asdict
 from . import config, store
 from .importing.sources import clone, unpack
 from .analysis.index import build_index
-from .analysis.agent import analyze
+from .runtime.analysis import analyze
 from .analysis.preview import preview
 from .analysis import checkpoints
 from . import execution
@@ -71,7 +71,7 @@ def run(identifier, resume=False, control=None):
         usage = {}
         baseline = min(85, max(40, job["progress"])) if indexed else 40
         if job["mode"] == "agent":
-            store.event(identifier, "Agent 分析", baseline, "Pydantic AI 开始按需检索源码，进度按阶段显示")
+            store.event(identifier, "Agent 分析", baseline, "OpenCode 完整代码智能体开始分析，原生会话持续保存")
             calls = 0
             def log(message):
                 nonlocal calls
@@ -80,6 +80,8 @@ def run(identifier, resume=False, control=None):
                 store.event(identifier, "Agent 分析", min(85, baseline + calls // 2), message)
                 control.check()
             state = checkpoints.load(identifier, "agent-state") if resume else None
+            if state and state.get("engine") == "opencode":
+                store.event(identifier, "恢复检查点", baseline, "恢复 OpenCode 会话与已读源码记录，不重建分区对话")
             if state and state.get("messages"):
                 store.event(identifier, "恢复检查点", baseline, f"恢复 {len(state['messages'])} 条框架消息与 {len(state.get('reads', {}))} 个文件的已读区间，本轮重新分配调用预算")
             checkpoint_writer = checkpoints.writer(identifier)

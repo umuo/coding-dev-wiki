@@ -29,6 +29,7 @@ def writer(identifier):
         nonlocal closed
         with lock:
             closed = True
+    write.directory = store.directory(identifier)
     write.close = close
     return write
 

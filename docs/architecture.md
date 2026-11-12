@@ -5,7 +5,7 @@
 | 技术 | 用途与理由 | 取舍 |
 | --- | --- | --- |
 | FastAPI | 上传、结果、问答和 SSE 接口；复用成熟 HTTP/校验机制 | 单进程部署，不引入分布式任务系统 |
-| Pydantic AI slim + 官方 Harness + OpenAI provider | 已有的 Agent 工具循环、schema 输出、输出纠错、调用预算；兼容模型集中配置 | 模型须支持 Chat Completions 工具调用及结构化输出工具 |
+| OpenCode 1.19.5 headless + Python HTTP 适配 | 完整代码智能体负责探索、原生会话和压缩，复用已有兼容模型配置 | 固定二进制版本；性能仍受模型与接口影响 |
 | Python AST / Tree-sitter | Python、JS/TS/Java 的符号区间，避免正则猜括号 | 其他语言仅文件级分析 |
 | 原生 ES modules / CSS / SVG | 固定 UI，可直接部署，同服务无需前端构建；SVG 架构图可关联源码 | 需自行维护较小的交互层 |
 | SQLite + JSON + 源码快照 | 单机任务历史、事件重放、结果版本固定 | 不支持多 worker / 多副本；两个任务执行线程 |
@@ -23,7 +23,7 @@
 flowchart LR
     U[Git URL / ZIP] --> I[受限导入]
     I --> S[不可变源码快照和符号索引]
-    S --> A[Pydantic AI Agent]
+    S --> A[OpenCode 完整代码智能体]
     A --> T[只读目录 / 搜索 / 精确读取]
     T --> A
     A --> V[结构与引用校验]
@@ -41,9 +41,11 @@ flowchart LR
 
 ## 扩展点
 
-新增语言：在 `analysis/index.py` 注册后缀及解析器。新增源码工具：在 `analysis/agent.py` 用 `@agent.tool` 注册并通过 `RepositoryContext` 访问快照。新增输出内容：更新 `analysis/schemas.py`、引用校验及相应前端模块。
+新增语言：在 `analysis/index.py` 注册后缀及解析器。生产运行时的只读权限、预算与模型映射在 `runtime/settings.py`；会话接入在 `runtime/client.py`；最终产物验证在 `runtime/analysis.py`。问答工具仍通过 `RepositoryContext` 访问快照。新增输出内容：更新 `analysis/schemas.py`、引用校验及相应前端模块。
 
-## 上下文与分批结果
+## 历史分析器兼容代码
+
+以下说明适用于旧检查点回归，不是当前生产分析入口。
 
 结果采用 Pydantic AI 的 `save_feature`、`save_node`、`save_edge` 工具逐条校验并持久化；最终输出类型仅包含概述、阅读建议和边界，服务端装配成既有结果结构。检查点 v2 保存已完成记录，旧版本消息迁移时移除失效的整份输出调用，保留读取工具的配对记录。
 
@@ -51,4 +53,4 @@ flowchart LR
 
 工具参数兼容通过 Pydantic AI 的 `before_tool_validate`、`after_tool_validate` 和错误钩子实现；JSON 语法解析修复复用 [json-repair](https://github.com/mangiucugna/json_repair)，不实现自有解析器或 Agent 循环。schema 不匹配及模糊的复合损坏由模型重新生成，所有记录仍通过源码证据校验后才落盘。
 
-仓库级执行采用 [模块阶段与官方 Harness](harness.md)，分别保存模块摘要、计划和工作记忆；每个模块与最终汇总各用独立历史，取消和恢复沿用当前任务状态机。
+生产分析入口使用 [OpenCode 完整运行时](runtime.md)。Pydantic AI 仍用于独立的项目问答，旧分析器只保留离线兼容回归；不作为生产分析失败时的回退路径。
