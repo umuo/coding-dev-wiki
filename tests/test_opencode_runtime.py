@@ -29,7 +29,7 @@ def native(tmp_path, monkeypatch):
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     port = listener.getsockname()[1]
-    fake = SimpleNamespace(calls=[], block=False, correction=False, timeouts=0, disconnected=threading.Event(), arrived=threading.Event())
+    fake = SimpleNamespace(calls=[], block=False, correction=False, timeouts=0, directory=False, reasoning_only=False, disconnected=threading.Event(), arrived=threading.Event())
     root = tmp_path / "runtime"
     app = FastAPI()
     @app.post("/v1/chat/completions")
@@ -47,6 +47,15 @@ def native(tmp_path, monkeypatch):
             def event(delta, finish=None):
                 return "data: " + json.dumps({"id": "fake", "object": "chat.completion.chunk", "created": 0,
                     "model": "fake-model", "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}) + "\n\n"
+            if fake.reasoning_only and not done:
+                fake.arrived.set()
+                try:
+                    yield event({"role": "assistant", "reasoning_content": "PRIVATE MODEL REASONING NEVER DISPLAY THIS"})
+                    while not await request.is_disconnected():
+                        await asyncio.sleep(.05)
+                finally:
+                    fake.disconnected.set()
+                return
             if done and fake.block:
                 fake.arrived.set()
                 try:
@@ -56,13 +65,13 @@ def native(tmp_path, monkeypatch):
                 finally:
                     fake.disconnected.set()
                 return
-            if done:
+            if done and not (fake.directory and len(fake.calls) == 2):
                 bad = fake.correction and not any("仅修正最终结果" in str(message.get("content", "")) for message in body["messages"])
                 yield event({"role": "assistant", "content": "not JSON" if bad else json.dumps(OUTPUT)})
                 yield event({}, "stop")
             else:
-                yield event({"role": "assistant", "tool_calls": [{"index": 0, "id": "read-1", "type": "function",
-                    "function": {"name": "read", "arguments": json.dumps({"filePath": str(root / "opencode/workspace/repo/main.py"), "offset": 1, "limit": 2})}}]})
+                yield event({"role": "assistant", "tool_calls": [{"index": 0, "id": "read-" + str(len(fake.calls)), "type": "function",
+                    "function": {"name": "read", "arguments": json.dumps({"filePath": str(root / "opencode/workspace/repo" / ("" if fake.directory and len(fake.calls) == 1 else "main.py")), "offset": 1, "limit": 2})}}]})
                 yield event({}, "tool_calls")
             yield "data: [DONE]\n\n"
         return StreamingResponse(stream(), media_type="text/event-stream")
@@ -229,3 +238,38 @@ def test_real_timeout_is_automatically_retried_in_same_native_session(native, mo
     assert any("自动重试 1/2" in message for message in logs)
     assert state["reads"]["main.py"] == [(1, 2)]
     assert "继续当前尚未完成" in str(fake.calls[-1]["messages"])
+
+
+def test_real_runtime_can_read_snapshot_root_directory(native):
+    fake, state, checkpoint = native
+    fake.directory = True
+    logs = []
+    result, _ = asyncio.run(analyze(FILES, logs.append, checkpoint=checkpoint))
+    assert result.overview == OUTPUT["overview"] and len(fake.calls) == 3
+    assert state["reads"]["main.py"] == [(1, 2)]
+    assert any("仓库根目录" in message and "completed" in message for message in logs)
+
+
+def test_real_reasoning_stream_produces_progress_counts_without_text(native):
+    fake, state, checkpoint = native
+    fake.reasoning_only = True
+    actions = []
+    def log(message):
+        pass
+    log.action = actions.append
+    async def run():
+        task = asyncio.create_task(analyze(FILES, log, checkpoint=checkpoint))
+        for _ in range(300):
+            if any(item["kind"] == "generation" for item in actions):
+                break
+            await asyncio.sleep(.02)
+        try:
+            assert not task.done()
+            assert any(item["kind"] == "generation" and "0 次" in item["detail"] for item in actions)
+            assert "PRIVATE MODEL REASONING" not in json.dumps(actions)
+            assert not state.get("reads")
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+    asyncio.run(run())

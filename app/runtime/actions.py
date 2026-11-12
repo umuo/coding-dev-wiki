@@ -1,6 +1,8 @@
 """将原生事件映射为可公开的动作；不转发源码输出、密钥或思考文本。"""
 from pathlib import Path
 from ..config import model_config
+from .telemetry import Generation
+from .details import outcome, failure, plan
 
 TOOL_NAMES = {"read": "读取源码", "grep": "搜索代码", "glob": "查找文件", "todowrite": "更新分析计划"}
 
@@ -10,6 +12,8 @@ class Actions:
         self.runtime = runtime
         self.previous = {}
         self.compaction = None
+        self.generation = Generation()
+        self.roles = {}
 
     def clean(self, value):
         text = str(value or "")
@@ -42,7 +46,8 @@ class Actions:
         workspace = self.runtime.workspace.resolve()
         path = path.resolve() if path.is_absolute() else (workspace / path).resolve()
         if path.is_relative_to(workspace / "repo"):
-            return path.relative_to(workspace / "repo").as_posix()
+            relative = path.relative_to(workspace / "repo").as_posix()
+            return "仓库根目录" if relative == "." else relative
         return "受限目录"
 
     def part(self, part):
@@ -75,16 +80,23 @@ class Actions:
             elif tool in {"grep", "glob"}:
                 detail = self.clean(args.get("pattern", "")) + (" · " + path if path else "")
             elif tool == "todowrite":
-                todos = args.get("todos", [])
-                detail = f"{len(todos)} 项任务，{sum(item.get('status') == 'completed' for item in todos if isinstance(item, dict))} 项已完成"
+                detail = plan(args.get("todos", []))
             else:
                 detail = ""
+            if status == "completed":
+                result = outcome(tool, state, self.path, self.clean)
+                if result:
+                    detail += " · " + result
+            elif status == "failed":
+                detail += " · 失败原因：" + failure(state.get("error"), self.clean)
             clock = state.get("time", {})
             duration = max(0, clock.get("end", 0) - clock.get("start", 0)) if clock.get("end") else None
             self.publish(identity, "tool", status, TOOL_NAMES.get(tool, "执行工具 " + tool), detail, tool=tool, durationMs=duration)
 
     def snapshot(self, messages):
         for message in messages:
+            info = message.get("info", {})
+            self.roles[info.get("id")] = info.get("role")
             for part in message.get("parts", []):
                 if part.get("type") != "compaction":
                     self.part(part)
@@ -100,7 +112,23 @@ class Actions:
         if session != self.runtime.session_id:
             return
         kind = event.get("type")
+        if kind == "message.updated":
+            info = properties.get("info", {})
+            self.roles[info.get("id")] = info.get("role")
+        elif kind == "message.part.delta":
+            self.generation.delta(properties)
+            self.generation_progress()
         if kind == "message.part.updated":
+            if part.get("type") == "tool" or self.roles.get(part.get("messageID")) == "assistant":
+                self.generation.part(part)
+                self.generation_progress()
+            if part.get("type") == "text" and self.roles.get(part.get("messageID")) == "assistant":
+                text = part.get("text", "").strip()
+                if text and not text.startswith(("{", "[", "```")) and not any(tag in text.lower() for tag in ("<think", "<analysis")):
+                    previous = self.previous.get("text-" + part.get("id", ""))
+                    if (not previous and len(text) >= 30) or part.get("time", {}).get("end"):
+                        self.publish("text-" + part.get("id", ""), "message", "completed", "Agent 说明（节选）", text)
+
             if part.get("type") == "step-start":
                 part = {**part, "id": "step-" + part.get("messageID", part.get("id", ""))}
             self.part(part)
@@ -122,4 +150,9 @@ class Actions:
                       if action["kind"] == "model" and action["status"] == "running"]
             for identity in active or [event.get("id", "model-error")]:
                 self.publish(identity, "model", "failed", "模型请求失败", "会话已保留，正在处理错误")
-        # reasoning/text/input 的逐 token 增量不进入 UI 或日志。
+        # 只公开生成统计和正文说明节选，不转发原始逐 token 增量。
+
+    def generation_progress(self):
+        if self.generation.due():
+            self.publish("generation-" + str(self.generation.round), "generation", "running",
+                         "模型生成进度", self.generation.summary())

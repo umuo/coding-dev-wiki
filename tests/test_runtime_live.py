@@ -213,3 +213,60 @@ def test_model_error_finishes_running_action_without_forwarding_error_body(tmp_p
     assert published[0]["id"] == published[1]["id"]
     assert [item["status"] for item in published] == ["running", "failed"]
     assert "SECRET ERROR BODY" not in json.dumps(published)
+
+
+def test_response_flow_counts_are_visible_without_exposing_reasoning(tmp_path):
+    rt, published = runtime(tmp_path)
+    bridge = Actions(rt)
+    bridge.event({"type": "message.updated", "properties": {"info": {"id": "m", "sessionID": rt.session_id, "role": "assistant"}}})
+    private = "PRIVATE REASONING MUST NOT BE SHOWN"
+    bridge.event({"type": "message.part.updated", "properties": {"sessionID": rt.session_id,
+                 "part": {"id": "thought", "messageID": "m", "type": "reasoning", "text": private}}})
+    assert any(item["kind"] == "generation" and "0 次" in item["detail"] for item in published)
+    assert str(len(private)) in bridge.generation.summary()
+    assert private not in json.dumps(published) and private not in repr(vars(bridge.generation))
+    bridge.event({"type": "message.part.delta", "properties": {"sessionID": rt.session_id, "partID": "thought", "field": "text", "delta": "MORE"}})
+    assert sum(bridge.generation.lengths.values()) == len(private) + 4
+    bridge.event({"type": "message.part.updated", "properties": {"sessionID": rt.session_id,
+                 "part": {"id": "thought", "messageID": "m", "type": "reasoning", "text": private + "MORE"}}})
+    assert sum(bridge.generation.lengths.values()) == len(private) + 4
+
+
+def test_prompt_text_is_not_counted_as_model_response(tmp_path):
+    rt, published = runtime(tmp_path)
+    bridge = Actions(rt)
+    bridge.event({"type": "message.updated", "properties": {"info": {"id": "u", "sessionID": rt.session_id, "role": "user"}}})
+    bridge.event({"type": "message.part.updated", "properties": {"sessionID": rt.session_id,
+                 "part": {"id": "prompt", "messageID": "u", "type": "text", "text": "private prompt"}}})
+    assert not bridge.generation.lengths and not published
+
+
+def test_tool_details_show_real_results_plan_items_and_failure_reason(tmp_path):
+    rt, published = runtime(tmp_path)
+    bridge = Actions(rt)
+    read = tool(tmp_path, "completed")
+    read["state"]["metadata"] = {"display": {"lineStart": 10, "lineEnd": 20, "totalLines": 100}}
+    bridge.part(read)
+    assert "返回第 10–20 行" in published[-1]["detail"]
+    bridge.part({"id": "glob", "type": "tool", "tool": "glob", "state": {"status": "completed", "input": {"pattern": "repo/**/*"},
+                "output": str(tmp_path / "repo/README.md") + "\n" + str(tmp_path / "repo/app.py"), "metadata": {}}})
+    assert "返回 2 个路径" in published[-1]["detail"] and "README.md" in published[-1]["detail"]
+    bridge.part({"id": "plan", "type": "tool", "tool": "todowrite", "state": {"status": "completed", "input": {
+                "todos": [{"content": "阅读 README", "status": "completed"}, {"content": "追踪导入流程", "status": "in_progress"}]}}})
+    assert "阅读 README" in published[-1]["detail"] and "进行中：追踪导入流程" in published[-1]["detail"]
+    failed = tool(tmp_path, "error")
+    failed["id"] = "failed"
+    failed["state"]["error"] = "The user has specified a rule which prevents you from using this specific tool call. private policy data"
+    bridge.part(failed)
+    assert "权限拒绝" in published[-1]["detail"] and "private policy" not in published[-1]["detail"]
+
+
+def test_only_public_assistant_narration_is_displayed_not_json_report(tmp_path):
+    rt, published = runtime(tmp_path)
+    bridge = Actions(rt)
+    bridge.event({"type": "message.updated", "properties": {"info": {"id": "m", "sessionID": rt.session_id, "role": "assistant"}}})
+    for identity, text in [("narration", "先读取 README 与项目入口，然后追踪导入、任务执行和结果生成的主要链路。"), ("report", '{"overview":"hidden report"}')]:
+        bridge.event({"type": "message.part.updated", "properties": {"sessionID": rt.session_id,
+                     "part": {"id": identity, "messageID": "m", "type": "text", "text": text, "time": {"end": 1}}}})
+    messages = [item for item in published if item["kind"] == "message"]
+    assert len(messages) == 1 and "README" in messages[0]["detail"]

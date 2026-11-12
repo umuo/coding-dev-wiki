@@ -28,7 +28,7 @@ def limits():
 def runtime_config(workspace=None):
     model = config.model_config()
     model_limits = limits()
-    read_permission = {"*": "deny", "repo/*": "allow", str(workspace / "repo" / "*"): "allow"} if workspace else "deny"
+    read_permission = {"*": "deny", "repo": "allow", "repo/*": "allow", str(workspace / "repo"): "allow", str(workspace / "repo" / "*"): "allow"} if workspace else "deny"
     return {
         "autoupdate": False, "share": "disabled", "snapshot": False,
         "lsp": False, "formatter": False, "instructions": [],

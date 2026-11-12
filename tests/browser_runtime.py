@@ -85,6 +85,18 @@ def main():
             }
         }""")
         assert page.evaluate('window.injected') is None
+        page.request.post('http://127.0.0.1:8085/test/generation-only')
+        page.goto('http://127.0.0.1:8085')
+        page.get_by_role('button', name='上传 ZIP', exact=True).click()
+        page.locator('#zipFile').set_input_files({"name": "generation.zip", "mimeType": "application/zip", "buffer": content.getvalue()})
+        page.locator('#mode').select_option('agent')
+        page.locator('#submit').click()
+        expect(page.locator('#logs [data-kind="generation"]').first).to_contain_text('已接收', timeout=30000)
+        expect(page.locator('#logs [data-kind="generation"]').first).to_contain_text('0 次')
+        expect(page.locator('#logs')).not_to_contain_text('PRIVATE REASONING')
+        page.screenshot(path='test-results/runtime-generation-mobile.png', full_page=True)
+        page.locator('#stopAnalysis').click()
+        expect(page.locator('#jobStatus')).to_have_text('已停止', timeout=15000)
         assert not errors, errors
         browser.close()
     print("Native runtime browser passed: ZIP → actual OpenCode read → stop → reload → same native session → result")

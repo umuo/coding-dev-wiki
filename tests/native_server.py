@@ -27,12 +27,20 @@ assert config.DATA_DIR == Path(os.environ["WIKI_DATA_DIR"]).resolve(), "浏览�
 fake = FastAPI()
 resumed = False
 timeout_next = False
+generation_only = False
 
 
 @app.post("/test/timeout-next")
 def fail_next():
     global timeout_next
     timeout_next = True
+    return {"ok": True}
+
+
+@app.post("/test/generation-only")
+def generate_without_tools():
+    global generation_only
+    generation_only = True
     return {"ok": True}
 
 
@@ -45,10 +53,18 @@ async def completion(request: Request):
         timeout_next = False
         return JSONResponse({"error": {"message": "The operation timed out.", "type": "invalid_request_error"}}, status_code=400)
     async def stream():
-        global resumed
+        global resumed, generation_only
         def event(delta, reason=None):
             return "data: " + json.dumps({"id": "fake", "object": "chat.completion.chunk", "created": 0,
                 "model": "fake-model", "choices": [{"index": 0, "delta": delta, "finish_reason": reason}]}) + "\n\n"
+        if generation_only and not done:
+            try:
+                yield event({"role": "assistant", "reasoning_content": "PRIVATE REASONING NEVER DISPLAY THIS"})
+                while not await request.is_disconnected():
+                    await asyncio.sleep(.05)
+            finally:
+                generation_only = False
+            return
         if done and not resumed:
             try:
                 yield event({"role": "assistant", "content": ""})

@@ -132,6 +132,7 @@ class Runtime:
                 await events.close()
 
     async def request(self, text, observe, events):
+        events.actions.generation.reset()
         task = asyncio.create_task(self.client.post("/session/" + self.session_id + "/message", json={
             "agent": "wiki", "model": {"providerID": "wiki", "modelID": "project"},
             "parts": [{"type": "text", "text": text}]},
@@ -155,7 +156,8 @@ class Runtime:
                             if is_timeout(status.get("message", "")):
                                 raise ModelTimeout("原生模型接口连续超时")
                             raise RuntimeError("模型接口连续失败，已停止自动重试；可检查接口后手动继续")
-                    self.log(f"OpenCode 正在分析，已等待 {int(time.monotonic() - started)} 秒；可随时停止")
+                    events.actions.publish("generation-" + str(events.actions.generation.round), "generation", "running",
+                                           "模型生成进度", events.actions.generation.summary(int(time.monotonic() - started)))
                     heartbeat = time.monotonic()
                 if time.monotonic() - started > 300:
                     raise TimeoutError("本轮智能体分析超过 300 秒，已保留会话；可手动继续")
