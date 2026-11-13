@@ -91,8 +91,11 @@ def run(identifier, resume=False, control=None):
                 store.event(identifier, "恢复检查点", baseline, f"恢复 {len(state['messages'])} 条框架消息与 {len(state.get('reads', {}))} 个文件的已读区间，本轮重新分配调用预算")
             checkpoint_writer = checkpoints.writer(identifier)
             async def controlled_analysis():
-                return await control.await_analysis(lambda: asyncio.wait_for(
-                    analyze(files, log, state=state, checkpoint=checkpoint_writer), timeout=900))
+                try:
+                    return await control.await_analysis(lambda: asyncio.wait_for(
+                        analyze(files, log, state=state, checkpoint=checkpoint_writer), timeout=210))
+                except asyncio.TimeoutError as exc:
+                    raise TimeoutError("快速概览超过总分析时限（210 秒），已保存会话，可手动继续") from exc
             analysis, usage_info = asyncio.run(controlled_analysis())
             usage = asdict(usage_info)
         else:
@@ -111,7 +114,7 @@ def run(identifier, resume=False, control=None):
         payload = {**analysis.model_dump(), "featureGroups": groups, "files": files, "symbols": symbols,
                    "repoName": job["name"], "generatedAt": store.now(), "fileCount": len(files),
                    "totalLines": sum(file["lines"] for file in files.values()), "snapshot": fingerprint,
-                   "revision": revision, "mode": job["mode"], "skipped": skipped, "usage": usage}
+                   "revision": revision, "mode": job["mode"], "analysisDepth": "overview" if job["mode"] == "agent" else "structure", "skipped": skipped, "usage": usage}
         control.check()
         store.save_result(identifier, payload)
         control.check()

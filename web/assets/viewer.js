@@ -92,10 +92,20 @@ function renderNavigation() {
         box.append(details);
     }
 }
+function deeperButton(question) {
+    const button = el('button', '按需深入了解 ↗');
+    button.addEventListener('click', () => {
+        document.dispatchEvent(new CustomEvent('project-question', {detail: question}));
+    });
+    return button;
+}
 function renderOverview(container) {
     container.append(el('div', 'PROJECT OVERVIEW', 'overview-label'), el('h1', data.repoName), el('p', data.overview, 'lead'));
     if (data.mode === 'preview') {
         container.append(el('div', '结构预览 · 本次未调用 LLM，没有生成业务功能和调用链分析。', 'notice'));
+    }
+    if (data.analysisDepth === 'overview') {
+        container.append(el('p', '快速概览 · 聚焦主要思路；源码可直接查看，更多细节通过问答按需分析。', 'notice'), deeperButton('请进一步解释这个项目最主要的业务链路，按需检索源码并附上引用。'));
     }
     container.append(el('h2', '推荐阅读路线'));
     const guide = el('ol');
@@ -121,6 +131,7 @@ function renderOverview(container) {
 function renderChain(container) {
     const feature = features.find(item => item.id === state.featureId) || features[0];
     container.append(el('div', `FEATURE ${feature.code}`, 'overview-label'), el('h1', feature.title), el('p', feature.desc, 'lead'));
+    container.append(deeperButton(`请深入解释“${feature.title}”的实现、调用链和边界情况，按需检索源码并附上引用。`));
     feature.steps.forEach((step, index) => {
         const file = data.files[step.path];
         const card = el('article', '', 'step-card');

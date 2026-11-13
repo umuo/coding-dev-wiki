@@ -31,7 +31,7 @@ async function loadJobs() {
             const row = el('a', '', 'job-row');
             row.href = job.status === 'completed' ? `/projects/${job.id}` : `/jobs/${job.id}`;
             const info = el('div');
-            info.append(el('strong', job.name), el('small', `${job.mode === 'agent' ? 'Agent 分析' : '结构预览'} · ${new Date(job.created).toLocaleString()} · ${job.stage} · ${job.progress}%`));
+            info.append(el('strong', job.name), el('small', `${job.mode === 'agent' ? '快速概览' : '结构预览'} · ${new Date(job.created).toLocaleString()} · ${job.stage} · ${job.progress}%`));
             row.append(el('span', '◈', 'job-icon'), info, el('span', statusLabels[job.status], `status ${job.status}`), el('span', '↗'));
             list.append(row);
         }

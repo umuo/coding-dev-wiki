@@ -1,6 +1,11 @@
 import {$, el, api, jsonPost, evidenceButton} from './common.js';
 export function setupChat(identifier, open) {
     const history = [];
+    document.addEventListener('project-question', (event) => {
+        $('#question').value = event.detail;
+        $('#chatDialog').showModal();
+        $('#question').focus();
+    });
     $('#chatOpen').addEventListener('click', () => $('#chatDialog').showModal());
     $('#chatClose').addEventListener('click', () => $('#chatDialog').close());
     $('#chatForm').addEventListener('submit', async (event) => {

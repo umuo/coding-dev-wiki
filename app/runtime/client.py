@@ -7,7 +7,7 @@ import secrets
 import signal
 import time
 import httpx
-from .settings import binary, environment, VERSION
+from .settings import binary, environment, session_permissions, VERSION
 from .stream import EventStream
 from .retries import ModelTimeout, is_timeout, RETRY_DELAYS
 
@@ -18,6 +18,7 @@ class Runtime:
         self.process = None
         self.client = None
         self.session_id = None
+        self.allow_tools = True
 
     async def __aenter__(self):
         password = secrets.token_urlsafe(32)
@@ -81,6 +82,9 @@ class Runtime:
                 raise ValueError("无效运行时会话标识")
             response = await self.client.get("/session/" + previous)
             if response.status_code == 200:
+                # 消息级工具关闭会持久化到 session；恢复时重设同等范围的 repo 只读规则。
+                reset = await self.client.patch("/session/" + previous, json={"permission": session_permissions(self.workspace)})
+                reset.raise_for_status()
                 self.session_id = previous
                 self.log("恢复 OpenCode 持久会话，不重放旧框架长对话")
                 return previous
@@ -135,6 +139,7 @@ class Runtime:
         events.actions.generation.reset()
         task = asyncio.create_task(self.client.post("/session/" + self.session_id + "/message", json={
             "agent": "wiki", "model": {"providerID": "wiki", "modelID": "project"},
+            **({"tools": {name: False for name in ("read", "glob", "grep", "todowrite")}} if not self.allow_tools else {}),
             "parts": [{"type": "text", "text": text}]},
             timeout=httpx.Timeout(None, connect=5, write=20, pool=5)))
         started = time.monotonic()

@@ -62,7 +62,7 @@ mkdocs serve
 
 端到端浏览器检查：先启动服务，再运行 `python tests/browser_smoke.py`。脚本默认使用本机 Chrome，也可用 `WIKI_BROWSER_EXECUTABLE` 指定 Chromium 路径。
 
-模型适配只需在 `.env` 配置 `WIKI_LLM_CONTEXT_TOKENS`（默认 `128000`）；输入、输出、工具读取预算自动推导。分析结果逐条保存，失败后继续补齐，无需手动配置输出 token 上限。详见[上下文窗口配置](docs/usage.md#模型上下文窗口)。
+模型适配只需在 `.env` 配置 `WIKI_LLM_CONTEXT_TOKENS`（默认 `128000`）；输入、输出、工具读取预算自动推导。默认先生成有界的快速概览，细节通过项目问答按需检索；失败后保留原生会话与已读证据，无需手动配置输出 token 上限。详见[上下文窗口配置](docs/usage.md#模型上下文窗口)。
 
 任务运行时可实时查看状态并点击“停止分析”；停止后保留检查点，Agent 任务可继续。停止中的请求会等待执行退出后才标记为已停止。
 

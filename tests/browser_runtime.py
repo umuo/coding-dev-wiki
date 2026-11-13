@@ -49,6 +49,17 @@ def main():
         expect(page.locator("#logs")).to_contain_text("恢复 OpenCode 持久会话")
         page.locator("#resultLink").click()
         expect(page.locator("#content")).to_contain_text("返回一个常量")
+        expect(page.locator('#content')).to_contain_text('快速概览')
+        page.get_by_role('button', name='按需深入了解 ↗', exact=True).click()
+        expect(page.locator('#chatDialog')).to_be_visible()
+        expect(page.locator('#question')).to_have_value('请进一步解释这个项目最主要的业务链路，按需检索源码并附上引用。')
+        # 预填问题不会自动发送请求。
+        expect(page.locator('#messages .message')).to_have_count(0)
+        page.locator('#chatClose').click()
+        page.locator('#content').get_by_role('button', name='1.1 · 返回 42', exact=True).click()
+        page.get_by_role('button', name='按需深入了解 ↗', exact=True).click()
+        expect(page.locator('#question')).to_have_value('请深入解释“返回 42”的实现、调用链和边界情况，按需检索源码并附上引用。')
+        page.locator('#chatClose').click()
         # 同一生产入口验证真实超时在原生会话自动恢复，并在等待阶段展示动作。
         page.request.post('http://127.0.0.1:8085/test/timeout-next')
         page.goto('http://127.0.0.1:8085')

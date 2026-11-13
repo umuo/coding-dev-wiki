@@ -158,7 +158,7 @@ def test_config_isolates_personal_credentials_and_denies_write(tmp_path, monkeyp
 def test_default_window_reserves_reasoning_output_without_filling_context(monkeypatch):
     monkeypatch.setenv("WIKI_LLM_CONTEXT_TOKENS", "128000")
     limits = runtime_config()["provider"]["wiki"]["models"]["project"]["limit"]
-    assert limits == {"context": 128000, "input": 32000, "output": 32000}
+    assert limits == {"context": 128000, "input": 64000, "output": 16384}
 
 
 def test_snapshot_rejects_changed_source_and_path_escape(tmp_path):
@@ -273,3 +273,39 @@ def test_real_reasoning_stream_produces_progress_counts_without_text(native):
             with pytest.raises(asyncio.CancelledError):
                 await task
     asyncio.run(run())
+
+
+def test_real_runtime_budget_handoff_disables_further_tools(native, monkeypatch):
+    from app.runtime import overview
+    monkeypatch.setattr(overview, "MAX_TOOLS", 1)
+    fake, state, checkpoint = native
+    result, _ = asyncio.run(analyze(FILES, lambda message: None, checkpoint=checkpoint))
+    assert result.overview == OUTPUT["overview"]
+    assert state["reads"]["main.py"]
+    final = fake.calls[-1]
+    assert not any(item["function"]["name"] in {"read", "glob", "grep", "todowrite"} for item in final.get("tools", []))
+    assert any("禁止继续调用工具" in str(message.get("content", "")) for message in final["messages"])
+
+
+def test_real_runtime_resume_resets_tool_deny_without_wildcard_allow(native):
+    from app.runtime.client import Runtime
+    fake, state, checkpoint = native
+    async def run():
+        directory = checkpoint.directory / "opencode"
+        workspace = materialize(directory, FILES)
+        async with Runtime(directory, workspace, lambda message: None) as runtime:
+            identity = await runtime.session()
+            response = await runtime.client.patch("/session/" + identity, json={"permission": [
+                {"permission": "read", "pattern": "*", "action": "deny"}]})
+            response.raise_for_status()
+            assert await runtime.session(identity) == identity
+            restored = await runtime.get("/session/" + identity)
+            from app.runtime.settings import session_permissions
+            rules = session_permissions(workspace)
+            # 原生 PATCH 追加规则，最新规则恢复相同的受限读取范围。
+            assert restored["permission"][-len(rules):] == rules
+            assert {"permission": "read", "pattern": "*", "action": "allow"} not in restored["permission"]
+            text = await runtime.prompt("Read repo/main.py and return the report", lambda messages: None)
+            assert json.loads(text)["overview"] == OUTPUT["overview"]
+    asyncio.run(run())
+    assert len(fake.calls) == 2
